@@ -1,0 +1,66 @@
+# ============================================================
+# Personal Knowledge Assistant — .gitignore
+# ============================================================
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+
+# ---- Virtual environment ----
+venv/
+.venv/
+env/
+ENV/
+
+# ---- Environment / secrets ----
+.env
+*.env
+
+# ---- Uploaded files (local dev artefacts — never commit user PDFs) ----
+uploads/
+/uploads/
+
+# ---- ChromaDB local store ----
+chroma_store/
+/chroma_store/
+
+# ---- Build / dist ----
+dist/
+build/
+*.egg-info/
+
+# ---- Testing & Code Quality ----
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# ---- Type checking ----
+.mypy_cache/
+.dmypy.json
+
+# ---- IDE ----
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# ---- Alembic ----
+# Keep migrations but ignore auto-generated env.py backups
+*.pyc
+
+# ---- Logs ----
+*.log
+logs/
+
+# ---- Node (frontend, when added) ----
+node_modules/
+.next/
+frontend/dist/
+frontend/build/

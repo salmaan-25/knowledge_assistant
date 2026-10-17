@@ -1,0 +1,48 @@
+# ============================================================
+# requirements.txt — Personal Knowledge Assistant (Backend)
+# ============================================================
+# Pin major versions for reproducibility; use pip-compile for
+# a fully resolved lock file in production.
+
+# ---- Web framework ----
+fastapi==0.115.4
+uvicorn[standard]==0.32.0
+python-multipart==0.0.17    # required for file upload (UploadFile)
+
+# ---- Configuration ----
+python-dotenv==1.0.1
+pydantic==2.9.2
+pydantic-settings==2.5.2
+pydantic[email]==2.9.2       # EmailStr support
+
+# ---- Database (PostgreSQL async) ----
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0             # async PostgreSQL driver
+aiosqlite==0.20.0           # async SQLite driver (tests only)
+alembic==1.14.0             # schema migrations
+
+# ---- Authentication ----
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+
+# ---- PDF extraction ----
+pypdf==5.1.0
+
+# ---- Google Gemini ----
+google-generativeai==0.8.3
+
+# ---- LangGraph / LangChain ----
+langgraph==0.2.45
+langchain-core==0.3.19
+langchain-google-genai==2.0.4
+
+# ---- Vector store ----
+chromadb>=0.5.20
+
+# ---- Testing & Code Quality ----
+pytest==8.3.3
+pytest-asyncio==0.24.0
+pytest-cov==7.1.0
+httpx==0.27.2               # AsyncClient for FastAPI testing
+anyio==4.6.2
+ruff==0.17.1
