@@ -112,4 +112,7 @@ def test_enrich_pdf_pages_with_vision_diagram(tmp_path):
         enriched = enrich_pdf_pages_with_vision(pdf_path, pages)
         assert len(enriched) == 1
         assert "Regular paragraph text" in enriched[0].text
-        assert "[Figure on Page 1: A flowchart displaying three-tier system architecture.]" in enriched[0].text
+        assert (
+            "[Figure on Page 1: A flowchart displaying three-tier system architecture.]"
+            in enriched[0].text
+        )
