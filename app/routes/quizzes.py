@@ -111,12 +111,12 @@ async def generate_quiz_endpoint(
     # Pre-flight quota check — raises HTTP 429 if the daily token limit is reached
     await check_quota(current_user, db)
 
-    # Retrieve relevant chunks
+    # Retrieve relevant chunks (optimized to prevent prompt bloat)
     topic_query = body.topic_filter or "key learning concepts important topics"
     chunks = retrieve_chunks(
         query=topic_query,
         document_id=body.document_id,
-        top_k=min(body.question_count * 2, 20),
+        top_k=min(body.question_count + 2, 8),
     )
 
     if not chunks:
@@ -154,8 +154,9 @@ async def generate_quiz_endpoint(
     await db.commit()
     await db.refresh(attempt)
 
-    # Record token usage for quiz generation (~1,500 tokens)
-    await record_usage(current_user, db, tokens=1500)
+    # Record actual token usage from Gemini response
+    actual_tokens = getattr(quiz, "total_tokens", 0)
+    await record_usage(current_user, db, tokens=actual_tokens)
 
     # Build public (no-answer) questions for the response
     public_questions = [

@@ -62,7 +62,9 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
     # RAG / retrieval
     # ------------------------------------------------------------------ #
-    RETRIEVAL_TOP_K: int = 6  # Number of chunks returned per query
+    RETRIEVAL_TOP_K: int = (
+        4  # Number of chunks returned per query (optimized for low cost & high precision)
+    )
 
     # ------------------------------------------------------------------ #
     # LangGraph / agent
