@@ -73,6 +73,39 @@ async def get_current_user(
     return user
 
 
+async def get_current_active_user(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """
+    Dependency that returns the current user if their account is active.
+
+    This is an alias for get_current_user that makes intent explicit in routes
+    that need the active-user guarantee (vs. admin routes that use require_admin).
+    """
+    return current_user
+
+
+async def require_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """
+    Dependency that restricts access to admin users only.
+
+    Place as Depends(require_admin) on any endpoint that should only be reachable
+    by administrators.  Returns HTTP 403 for authenticated non-admin users.
+
+    Security note: this check happens server-side on every request regardless of
+    what the client sends — role cannot be spoofed via JWT payload manipulation
+    because the user object is always re-fetched from the database.
+    """
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Administrator privileges required.",
+        )
+    return current_user
+
+
 # ------------------------------------------------------------------ #
 # POST /auth/register
 # ------------------------------------------------------------------ #
@@ -164,8 +197,25 @@ async def login(
 @router.get(
     "/me",
     response_model=UserOut,
-    summary="Get the current authenticated user's profile",
+    summary="Get the current authenticated user's profile with token usage",
 )
-async def get_me(current_user: User = Depends(get_current_user)) -> UserOut:
-    """Return the authenticated user's profile."""
-    return UserOut.model_validate(current_user)
+async def get_me(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserOut:
+    """Return the authenticated user's profile with live daily token usage."""
+    from app.services.quota_service import get_user_quota_info
+
+    quota = await get_user_quota_info(current_user, db)
+    return UserOut(
+        id=current_user.id,
+        email=current_user.email,
+        full_name=current_user.full_name,
+        is_active=current_user.is_active,
+        role=current_user.role,
+        custom_daily_token_limit=current_user.custom_daily_token_limit,
+        tokens_used_today=quota["tokens_used_today"],
+        daily_token_limit=quota["daily_token_limit"],
+        queries_today=quota["queries_today"],
+        created_at=current_user.created_at,
+    )

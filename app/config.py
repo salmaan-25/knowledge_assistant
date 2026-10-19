@@ -74,7 +74,22 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
     APP_ENV: str = "development"  # "development" | "production"
     SECRET_KEY: str = "change-me-in-production-use-a-long-random-string"
-    ALLOWED_ORIGINS: list[str] | str = ["http://localhost:3000", "http://localhost:5173"]
+    ALLOWED_ORIGINS: list[str] | str = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:5174",
+    ]
+
+    # ------------------------------------------------------------------ #
+    # Admin & Quota
+    # ------------------------------------------------------------------ #
+    # Email address that is automatically promoted to ADMIN on first startup.
+    # Set this to your personal email in .env before the first run.
+    SUPERADMIN_EMAIL: str = ""
+
+    # Maximum tokens a basic user may consume per calendar day (UTC).
+    # Set to 0 to disable quota enforcement for all users.
+    DEFAULT_DAILY_TOKEN_LIMIT: int = 50000
 
     @field_validator("ALLOWED_ORIGINS")
     @classmethod

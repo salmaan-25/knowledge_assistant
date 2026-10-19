@@ -81,6 +81,22 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def create_all_tables() -> None:
     """Create all tables (dev helper).  Prefer Alembic migrations in production."""
     async with engine.begin() as conn:
+        from sqlalchemy import text
+
         from app.database import models  # noqa: F401 — ensures models are registered
 
         await conn.run_sync(Base.metadata.create_all)
+
+        # Dev auto-migration: ensure newly added columns exist on existing tables
+        if conn.dialect.name == "postgresql":
+            await conn.execute(
+                text(
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'user' NOT NULL;"
+                )
+            )
+            await conn.execute(
+                text(
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_daily_token_limit INTEGER NULL;"
+                )
+            )
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_role ON users (role);"))

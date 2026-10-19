@@ -134,7 +134,14 @@ class SubmittedAnswer(BaseModel):
     """A single answer submitted by the user."""
 
     question_index: int
-    answer: str = Field(max_length=500)
+    answer: str = Field(default="", max_length=500)
+    selected_option: str | None = None
+
+    @model_validator(mode="after")
+    def validate_answer(self) -> SubmittedAnswer:
+        if not self.answer and self.selected_option:
+            self.answer = self.selected_option
+        return self
 
 
 class QuizSubmitRequest(BaseModel):

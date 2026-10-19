@@ -87,3 +87,6 @@ async def test_me_endpoint_authenticated(async_client: AsyncClient, auth_headers
     data = resp.json()
     assert "email" in data
     assert "id" in data
+    # New field — every registered user defaults to role='user'
+    assert data["role"] == "user"
+    assert "hashed_password" not in data

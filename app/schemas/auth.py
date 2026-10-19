@@ -31,6 +31,14 @@ class UserOut(BaseModel):
     email: str
     full_name: str | None = None
     is_active: bool
+    role: str  # "user" | "admin"
+    custom_daily_token_limit: int | None = None
+
+    # Quota info for user dashboard / header display
+    tokens_used_today: int = 0
+    daily_token_limit: int = 50000  # -1 = unlimited (admin)
+    queries_today: int = 0
+
     created_at: datetime
 
     model_config = {"from_attributes": True}
