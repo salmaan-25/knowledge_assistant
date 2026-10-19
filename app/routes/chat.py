@@ -96,7 +96,8 @@ async def ask_question(
         ) from exc
 
     # Record usage AFTER successful invocation (commit=False batches with message persistence).
-    await record_usage(current_user, db, tokens=0, commit=False)
+    actual_tokens = final_state.get("total_tokens", 0)
+    await record_usage(current_user, db, tokens=actual_tokens, commit=False)
 
     answer = final_state.get("answer") or "No answer could be generated."
     sources_raw: list[dict] = final_state.get("sources") or []

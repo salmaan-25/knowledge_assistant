@@ -79,6 +79,9 @@ class GraphState(TypedDict, total=False):
     question_count: int
     section_hint: str | None
     max_summary_length: int | None
+    total_tokens: int
+    prompt_tokens: int
+    completion_tokens: int
 
 
 # ------------------------------------------------------------------ #

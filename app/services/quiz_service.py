@@ -161,15 +161,23 @@ def generate_quiz(
         question_types=question_types,
     )
 
+    # Scale max output tokens based on question count to prevent runaway token costs
+    max_tokens = min(max(question_count * 280 + 200, 800), 2500)
+
     last_error: Exception | None = None
     for attempt in range(1, settings.MAX_LLM_RETRIES + 1):
         try:
-            logger.info("Quiz generation attempt %d/%d", attempt, settings.MAX_LLM_RETRIES)
+            logger.info(
+                "Quiz generation attempt %d/%d (max_tokens=%d)",
+                attempt,
+                settings.MAX_LLM_RETRIES,
+                max_tokens,
+            )
             response = model.generate_content(
                 prompt,
                 generation_config=genai.GenerationConfig(
                     temperature=0.4,
-                    max_output_tokens=4096,
+                    max_output_tokens=max_tokens,
                 ),
             )
             raw_dict = _extract_json_from_response(response.text)
@@ -179,10 +187,21 @@ def generate_quiz(
             for i, q in enumerate(quiz.questions):
                 q.question_index = i
 
+            # Extract actual Gemini token usage metadata
+            metadata = getattr(response, "usage_metadata", None)
+            if metadata:
+                p_toks = getattr(metadata, "prompt_token_count", 0) or 0
+                c_toks = getattr(metadata, "candidates_token_count", 0) or 0
+                t_toks = getattr(metadata, "total_token_count", 0) or (p_toks + c_toks)
+                quiz.total_tokens = t_toks
+                quiz.prompt_tokens = p_toks
+                quiz.completion_tokens = c_toks
+
             logger.info(
-                "Successfully generated %d questions (difficulty=%s)",
+                "Successfully generated %d questions (difficulty=%s, tokens=%d)",
                 len(quiz.questions),
                 difficulty,
+                quiz.total_tokens,
             )
             return quiz
 

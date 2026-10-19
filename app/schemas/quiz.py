@@ -69,6 +69,9 @@ class GeneratedQuiz(BaseModel):
     document_id: str
     difficulty: str
     topic_filter: str | None = None
+    total_tokens: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
     @field_validator("difficulty")
     @classmethod
