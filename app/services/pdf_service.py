@@ -243,11 +243,12 @@ async def process_upload(upload_file: UploadFile) -> ExtractionResult:
     return result
 
 
-def load_pdf_from_disk(file_path: str) -> ExtractionResult:
+def load_pdf_from_disk(file_path: str, enrich_visuals: bool = False) -> ExtractionResult:
     """
     Re-extract text from a previously saved PDF on disk.
 
-    Useful for re-indexing without requiring the user to re-upload.
+    If enrich_visuals=True, runs OCR on scanned pages and extracts semantic descriptions
+    for charts and diagrams via Gemini Vision.
     """
     path = Path(file_path)
     if not path.exists():
@@ -257,6 +258,17 @@ def load_pdf_from_disk(file_path: str) -> ExtractionResult:
         )
     data = path.read_bytes()
     pages = _extract_pages(data)
+
+    if enrich_visuals:
+        try:
+            from app.services.vision_service import enrich_pdf_pages_with_vision
+
+            pages = enrich_pdf_pages_with_vision(file_path, pages)
+        except Exception as exc:
+            logger.warning(
+                "Visual enrichment failed for %s (continuing with text): %s", file_path, exc
+            )
+
     return ExtractionResult(
         document_id="",
         filename=path.name,

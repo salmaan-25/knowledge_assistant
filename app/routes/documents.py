@@ -104,8 +104,8 @@ async def _index_document_background(
             doc.status = DocumentStatus.PROCESSING
             await db.commit()
 
-            # Re-extract from disk (avoids keeping file bytes in memory)
-            extraction = load_pdf_from_disk(file_path)
+            # Re-extract from disk and enrich with OCR and diagram vision
+            extraction = load_pdf_from_disk(file_path, enrich_visuals=True)
             chunks = chunk_pages(extraction.pages, document_id=document_id)
 
             # Store chunk metadata in PostgreSQL
