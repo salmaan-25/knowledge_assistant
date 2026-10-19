@@ -2,22 +2,25 @@
 database/models.py — SQLAlchemy ORM models for the Knowledge Assistant.
 
 Tables:
-    users            — Registered users (auth planned for Phase 7)
-    documents        — Uploaded PDF metadata and processing status
-    document_chunks  — Optional: relational chunk metadata (complement to ChromaDB)
-    quiz_attempts    — A single quiz session per user per document
-    quiz_answers     — Individual answer records per attempt
-    topic_progress   — Aggregated weak-topic tracking per user
+    users              — Registered users with role (user | admin) and token limits
+    daily_token_usage  — Per-user daily token & query consumption tracking
+    documents          — Uploaded PDF metadata and processing status
+    document_chunks    — Relational chunk metadata (complement to ChromaDB)
+    quiz_attempts      — A single quiz session per user per document
+    quiz_answers       — Individual answer records per attempt
+    topic_progress     — Aggregated weak-topic tracking per user
 """
 
 from __future__ import annotations
 
 import enum
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
+    Date,
     DateTime,
     Enum,
     Float,
@@ -46,6 +49,11 @@ def _now() -> datetime:
 # ------------------------------------------------------------------ #
 # Enumerations (stored as VARCHAR for portability)
 # ------------------------------------------------------------------ #
+class UserRole(str, enum.Enum):
+    USER = "user"
+    ADMIN = "admin"
+
+
 class DocumentStatus(str, enum.Enum):
     PENDING = "pending"
     PROCESSING = "processing"
@@ -83,6 +91,15 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # Role — never accepted from registration input, only set server-side.
+    # Admins have unlimited token access and access to /admin/* endpoints.
+    role: Mapped[str] = mapped_column(String(20), default=UserRole.USER, nullable=False, index=True)
+
+    # Optional per-user token override (NULL → use global DEFAULT_DAILY_TOKEN_LIMIT).
+    # Admins always bypass this limit regardless of the value here.
+    custom_daily_token_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, nullable=False
     )
@@ -100,9 +117,53 @@ class User(Base):
     topic_progress: Mapped[list[TopicProgress]] = relationship(
         "TopicProgress", back_populates="user", cascade="all, delete-orphan"
     )
+    daily_usage: Mapped[list[DailyTokenUsage]] = relationship(
+        "DailyTokenUsage", back_populates="user", cascade="all, delete-orphan"
+    )
+    chat_messages: Mapped[list[ChatMessage]] = relationship(
+        "ChatMessage", back_populates="user", cascade="all, delete-orphan"
+    )
+
+    @property
+    def is_admin(self) -> bool:
+        """Convenience check — avoids raw string comparisons in business logic."""
+        return self.role == UserRole.ADMIN
 
     def __repr__(self) -> str:  # pragma: no cover
-        return f"<User id={self.id} email={self.email}>"
+        return f"<User id={self.id} email={self.email} role={self.role}>"
+
+
+# ------------------------------------------------------------------ #
+# Daily Token Usage
+# ------------------------------------------------------------------ #
+class DailyTokenUsage(Base):
+    """
+    Tracks daily token & query consumption per user.
+
+    One row per (user_id, usage_date).  The application performs an
+    upsert-style increment so only one row exists per user per calendar day.
+    Admins are never written to this table — they bypass quota checks entirely.
+    """
+
+    __tablename__ = "daily_token_usage"
+    __table_args__ = (UniqueConstraint("user_id", "usage_date", name="uq_user_usage_date"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid, index=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    usage_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    query_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Relationships
+    user: Mapped[User] = relationship("User", back_populates="daily_usage")
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return (
+            f"<DailyTokenUsage user={self.user_id} date={self.usage_date} "
+            f"tokens={self.tokens_used} queries={self.query_count}>"
+        )
 
 
 # ------------------------------------------------------------------ #
@@ -155,6 +216,9 @@ class Document(Base):
     )
     quiz_attempts: Mapped[list[QuizAttempt]] = relationship(
         "QuizAttempt", back_populates="document"
+    )
+    chat_messages: Mapped[list[ChatMessage]] = relationship(
+        "ChatMessage", back_populates="document", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:  # pragma: no cover
@@ -313,3 +377,44 @@ class TopicProgress(Base):
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<TopicProgress user={self.user_id} topic={self.topic} acc={self.accuracy:.0%}>"
+
+
+# ------------------------------------------------------------------ #
+# Chat History
+# ------------------------------------------------------------------ #
+class MessageRole(str, enum.Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
+
+
+class ChatMessage(Base):
+    """
+    Persisted question-and-answer turn for a document.
+
+    Records both user queries and assistant responses (with citations and context flags)
+    so users can resume conversations across sessions.
+    """
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid, index=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    document_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role: Mapped[str] = mapped_column(String(20), nullable=False)  # 'user' | 'assistant'
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    sources: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
+    has_sufficient_context: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, nullable=False, index=True
+    )
+
+    # Relationships
+    user: Mapped[User] = relationship("User", back_populates="chat_messages")
+    document: Mapped[Document] = relationship("Document", back_populates="chat_messages")
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<ChatMessage id={self.id} role={self.role} doc={self.document_id}>"

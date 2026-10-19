@@ -48,6 +48,7 @@ from app.services.quiz_service import (
     score_quiz,
     serialise_questions,
 )
+from app.services.quota_service import check_quota, record_usage
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/quizzes", tags=["Quizzes"])
@@ -93,10 +94,11 @@ async def generate_quiz_endpoint(
 
     Steps:
       1. Verify document ownership and READY status.
-      2. Retrieve relevant chunks from ChromaDB.
-      3. Call quiz_service.generate_quiz() (Gemini + Pydantic validation).
-      4. Store the quiz attempt (including answer key) in PostgreSQL.
-      5. Return the questions WITHOUT correct_answer — only the public view.
+      2. Verify user has daily token quota available.
+      3. Retrieve relevant chunks from ChromaDB.
+      4. Call quiz_service.generate_quiz() (Gemini + Pydantic validation).
+      5. Store the quiz attempt (including answer key) in PostgreSQL.
+      6. Record token usage and return public view.
     """
     doc = await _get_owned_document(body.document_id, current_user, db)
 
@@ -105,6 +107,9 @@ async def generate_quiz_endpoint(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Document is not ready. Status: {doc.status.value}.",
         )
+
+    # Pre-flight quota check — raises HTTP 429 if the daily token limit is reached
+    await check_quota(current_user, db)
 
     # Retrieve relevant chunks
     topic_query = body.topic_filter or "key learning concepts important topics"
@@ -148,6 +153,9 @@ async def generate_quiz_endpoint(
     db.add(attempt)
     await db.commit()
     await db.refresh(attempt)
+
+    # Record token usage for quiz generation (~1,500 tokens)
+    await record_usage(current_user, db, tokens=1500)
 
     # Build public (no-answer) questions for the response
     public_questions = [
@@ -279,13 +287,19 @@ async def submit_quiz(
     attempt.percentage = result.percentage
     attempt.submitted_at = datetime.now(UTC)
 
-    # Update topic progress for weak-topic tracking
+    # Update topic progress for weak-topic tracking (aggregate by topic first to prevent unique constraint collisions)
+    topic_stats: dict[str, dict[str, int]] = {}
     for r in result.results:
         question = next((q for q in questions if q.question_index == r.question_index), None)
         topic = question.topic if question else None
         if not topic:
             continue
+        stats = topic_stats.setdefault(topic, {"attempts": 0, "correct": 0})
+        stats["attempts"] += 1
+        if r.is_correct:
+            stats["correct"] += 1
 
+    for topic, stats in topic_stats.items():
         tp_result = await db.execute(
             select(TopicProgress).where(
                 TopicProgress.user_id == current_user.id,
@@ -305,9 +319,8 @@ async def submit_quiz(
             )
             db.add(tp)
 
-        tp.attempts += 1
-        if r.is_correct:
-            tp.correct += 1
+        tp.attempts += stats["attempts"]
+        tp.correct += stats["correct"]
         tp.last_attempted_at = datetime.now(UTC)
 
     await db.commit()

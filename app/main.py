@@ -22,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
+from app.routes.admin import router as admin_router
 from app.routes.auth import router as auth_router
 from app.routes.chat import router as chat_router
 from app.routes.documents import router as documents_router
@@ -39,6 +40,47 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
+
+
+# ------------------------------------------------------------------ #
+# Superadmin bootstrap
+# ------------------------------------------------------------------ #
+async def _bootstrap_superadmin(email: str) -> None:
+    """
+    Ensure the configured SUPERADMIN_EMAIL account has role=admin.
+
+    Idempotent: runs on every startup but only writes to the DB when the role
+    needs to change.  Does nothing if the email address has not registered yet
+    (they'll be promoted on their first registration — see note below).
+
+    Note: registration hardcodes role=USER. After the superadmin registers once,
+    this function promotes them on the next restart (or immediately if the server
+    was already running and they registered mid-session via a manual call).
+    """
+    from sqlalchemy import select
+
+    from app.database.connection import AsyncSessionLocal
+    from app.database.models import User, UserRole
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(User).where(User.email == email))
+        user = result.scalar_one_or_none()
+
+        if user is None:
+            logger.info(
+                "Superadmin bootstrap: email '%s' not registered yet — "
+                "will promote automatically after first login.",
+                email,
+            )
+            return
+
+        if user.role == UserRole.ADMIN:
+            logger.info("Superadmin bootstrap: '%s' is already admin. No change.", email)
+            return
+
+        user.role = UserRole.ADMIN
+        await db.commit()
+        logger.info("Superadmin bootstrap: promoted '%s' to admin role.", email)
 
 
 # ------------------------------------------------------------------ #
@@ -69,6 +111,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if not settings.is_production:
         logger.info("Development mode: creating database tables if they don't exist…")
         await create_all_tables()
+
+    # ---- Bootstrap superadmin ----
+    # If SUPERADMIN_EMAIL is set in .env, ensure that account has role=admin.
+    # This is idempotent: safe to run on every startup.
+    if settings.SUPERADMIN_EMAIL:
+        await _bootstrap_superadmin(settings.SUPERADMIN_EMAIL)
 
     logger.info("Startup complete.")
     yield
@@ -138,6 +186,7 @@ def create_app() -> FastAPI:
 
     # ---- Routers ----
     app.include_router(auth_router)
+    app.include_router(admin_router)
     app.include_router(documents_router)
     app.include_router(chat_router)
     app.include_router(quizzes_router)
