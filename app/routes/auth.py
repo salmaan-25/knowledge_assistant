@@ -20,8 +20,9 @@ from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database.connection import get_db
-from app.database.models import User
+from app.database.models import User, UserRole
 from app.schemas.auth import Token, UserCreate, UserOut
 from app.services.auth_service import (
     create_access_token,
@@ -31,6 +32,7 @@ from app.services.auth_service import (
 )
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -139,6 +141,13 @@ async def register(
         hashed_password=hash_password(body.password),
         full_name=body.full_name,
     )
+    if (
+        settings.SUPERADMIN_EMAIL
+        and body.email.strip().lower() == settings.SUPERADMIN_EMAIL.strip().lower()
+    ):
+        user.role = UserRole.ADMIN
+        logger.info("Assigned ADMIN role to superadmin on registration: %s", user.email)
+
     db.add(user)
     await db.flush()  # get generated ID before commit
     await db.refresh(user)
